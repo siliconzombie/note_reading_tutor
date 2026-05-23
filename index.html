@@ -164,12 +164,13 @@
         // Treble Extra High (Above Staff)
         'G5': { f: 783.99, m: 79, yTreble: 30, type: 'white' },
         'G#5':{ f: 830.61, m: 80, yTreble: 30, type: 'black', acc: '♯' },
-        'A5': { f: 880.00, m: 81, yTreble: 20, type: 'white' }
+        'A5': { f: 880.00, m: 81, yTreble: 20, type: 'white' },
+        'Bb5':{ f: 932.33, m: 82, yTreble: 20, type: 'black', acc: '♭' }
     };
 
     // Note ranges mapped perfectly to visually align black keys
-    const keysOrderTreble = ['C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','Bb4','B4','C5','C#5','D5','D#5','E5','F5','F#5','G5','G#5','A5'];
-    const keysOrderBass = ['E2','F2','F#2','G2','G#2','A2','Bb2','B2','C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','Bb3','B3','C4'];
+    const keysOrderTreble = ['C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','Bb4','B4','C5','C#5','D5','D#5','E5','F5','F#5','G5','G#5','A5','Bb5'];
+    const keysOrderBass = ['E2','F2','F#2','G2','G#2','A2','Bb2','B2','C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','Bb3','B3','C4','C#4'];
 
     function initApp() {
         document.getElementById('start-screen').style.display = 'none';
