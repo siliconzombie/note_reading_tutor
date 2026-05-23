@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Music Note Explorer</title>
+<style>
+    body {
+        font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif;
+        background-color: #f0f8ff;
+        text-align: center;
+        margin: 0;
+        padding: 10px;
+        touch-action: manipulation;
+    }
+    #start-screen {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(255, 255, 255, 0.95);
+        display: flex; flex-direction: column; justify-content: center; align-items: center;
+        z-index: 1000;
+    }
+    button {
+        font-size: 24px; padding: 15px 30px; margin: 10px;
+        background-color: #4CAF50; color: white; border: none;
+        border-radius: 15px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    button:active { transform: translateY(2px); }
+    #controls { margin-bottom: 10px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+    select { font-size: 20px; padding: 5px; border-radius: 10px; }
+    #staff-container {
+        background: white; border-radius: 15px; padding: 10px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin: 10px auto;
+        max-width: 600px; overflow-x: auto;
+    }
+    svg { width: 100%; max-height: 200px; display: block; }
+    #feedback-area {
+        height: 80px; display: flex; justify-content: center; align-items: center;
+        font-size: 40px; font-weight: bold; margin-bottom: 10px;
+    }
+    #help-btn { background-color: #2196F3; display: none; font-size: 18px; padding: 10px 20px;}
+    
+    /* Piano Keyboard CSS */
+    #keyboard {
+        display: flex; justify-content: center; position: relative;
+        height: 150px; max-width: 800px; margin: 0 auto;
+        border-radius: 5px; overflow: hidden;
+    }
+    .key-white {
+        flex: 1; height: 100%; background: white; border: 1px solid #ccc;
+        border-bottom-left-radius: 5px; border-bottom-right-radius: 5px;
+        box-shadow: 0 3px 5px rgba(0,0,0,0.2); cursor: pointer;
+    }
+    .key-white:active, .key-white.active { background: #e0e0e0; }
+    .key-black {
+        width: 5%; height: 60%; background: black; position: absolute;
+        top: 0; margin-left: -2.5%; z-index: 2; border-bottom-left-radius: 3px;
+        border-bottom-right-radius: 3px; cursor: pointer;
+    }
+    .key-black:active, .key-black.active { background: #333; }
+</style>
+</head>
+<body>
+
+<div id="start-screen">
+    <h1>🎵 Music Explorer 🎵</h1>
+    <p>Tap below to unlock the sound!</p>
+    <button onclick="initApp()">Start Playing</button>
+</div>
+
+<div id="controls">
+    <select id="clef-select" onchange="loadExercise()">
+        <option value="treble">Treble Clef (𝄞)</option>
+        <option value="bass">Bass Clef (𝄢)</option>
+    </select>
+    <select id="level-select" onchange="loadExercise()">
+        <option value="beginner">Beginner (Single Notes)</option>
+        <option value="intermediate">Intermediate (Songs & Chords)</option>
+        <option value="advanced">Advanced (Mixed Keys)</option>
+    </select>
+</div>
+
+<div id="staff-container">
+    <svg id="staff" viewBox="0 0 450 200">
+        <!-- Staff Lines -->
+        <line x1="0" y1="40" x2="450" y2="40" stroke="black" stroke-width="2"/>
+        <line x1="0" y1="60" x2="450" y2="60" stroke="black" stroke-width="2"/>
+        <line x1="0" y1="80" x2="450" y2="80" stroke="black" stroke-width="2"/>
+        <line x1="0" y1="100" x2="450" y2="100" stroke="black" stroke-width="2"/>
+        <line x1="0" y1="120" x2="450" y2="120" stroke="black" stroke-width="2"/>
+        <!-- Clef Symbol -->
+        <text id="clef-symbol" x="10" y="110" font-size="80" font-family="serif">𝄞</text>
+        <g id="notes-layer"></g>
+        <g id="feedback-layer"></g>
+    </svg>
+</div>
+
+<div id="feedback-area">
+    <span id="face-emoji">🤔</span>
+    <span id="feedback-text" style="margin-left: 15px; font-size: 28px;">Let's play!</span>
+    <button id="help-btn" onclick="playTargetSound()">🔊 Hear Note</button>
+</div>
+
+<div id="keyboard"></div>
+
+<script>
+    // Audio Context
+    let audioCtx;
+    let voiceTimeout;
+    let visualTimeout;
+    
+    // App State
+    let currentSequence = [];
+    let currentIndex = 0;
+    let chordProgress = []; 
+    let mistakes = 0;
+    
+    // Pitch Definitions & Y-Coordinates for the expanded ranges
+    const pitches = {
+        // Bass Extra Low (Below Staff)
+        'E2': { f: 82.41, m: 40, yBass: 140, type: 'white' },
+        'F2': { f: 87.31, m: 41, yBass: 130, type: 'white' },
+        'F#2':{ f: 92.50, m: 42, yBass: 130, type: 'black', acc: '♯' },
+        // Bass Staff
+        'G2': { f: 98.00, m: 43, yBass: 120, type: 'white' },
+        'G#2':{ f: 103.83, m: 44, yBass: 120, type: 'black', acc: '♯' },
+        'A2': { f: 110.00, m: 45, yBass: 110, type: 'white' },
+        'Bb2':{ f: 116.54, m: 46, yBass: 110, type: 'black', acc: '♭' },
+        'B2': { f: 123.47, m: 47, yBass: 100, type: 'white' },
+        'C3': { f: 130.81, m: 48, yBass: 90, type: 'white' },
+        'C#3':{ f: 138.59, m: 49, yBass: 90, type: 'black', acc: '♯' },
+        'D3': { f: 146.83, m: 50, yBass: 80, type: 'white' },
+        'D#3':{ f: 155.56, m: 51, yBass: 80, type: 'black', acc: '♯' },
+        'E3': { f: 164.81, m: 52, yBass: 70, type: 'white' },
+        'F3': { f: 174.61, m: 53, yBass: 60, type: 'white' },
+        'F#3':{ f: 185.00, m: 54, yBass: 60, type: 'black', acc: '♯' },
+        'G3': { f: 196.00, m: 55, yBass: 50, type: 'white' },
+        'G#3':{ f: 207.65, m: 56, yBass: 50, type: 'black', acc: '♯' },
+        'A3': { f: 220.00, m: 57, yBass: 40, type: 'white' },
+        // Bass Extra High (Above Staff)
+        'Bb3':{ f: 233.08, m: 58, yBass: 30, type: 'black', acc: '♭' },
+        'B3': { f: 246.94, m: 59, yBass: 30, type: 'white' },
+        // Middle C (Shared - Below Treble, Above Bass)
+        'C4': { f: 261.63, m: 60, yTreble: 140, yBass: 20, type: 'white' },
+        'C#4':{ f: 277.18, m: 61, yTreble: 140, yBass: 20, type: 'black', acc: '♯' },
+        // Treble Extra Low (Below Staff)
+        'D4': { f: 293.66, m: 62, yTreble: 130, type: 'white' },
+        'D#4':{ f: 311.13, m: 63, yTreble: 130, type: 'black', acc: '♯' },
+        // Treble Staff
+        'E4': { f: 329.63, m: 64, yTreble: 120, type: 'white' },
+        'F4': { f: 349.23, m: 65, yTreble: 110, type: 'white' },
+        'F#4':{ f: 369.99, m: 66, yTreble: 110, type: 'black', acc: '♯' },
+        'G4': { f: 392.00, m: 67, yTreble: 100, type: 'white' },
+        'G#4':{ f: 415.30, m: 68, yTreble: 100, type: 'black', acc: '♯' },
+        'A4': { f: 440.00, m: 69, yTreble: 90, type: 'white' },
+        'Bb4':{ f: 466.16, m: 70, yTreble: 80, type: 'black', acc: '♭' },
+        'B4': { f: 493.88, m: 71, yTreble: 80, type: 'white' },
+        'C5': { f: 523.25, m: 72, yTreble: 70, type: 'white' },
+        'C#5':{ f: 554.37, m: 73, yTreble: 70, type: 'black', acc: '♯' },
+        'D5': { f: 587.33, m: 74, yTreble: 60, type: 'white' },
+        'D#5':{ f: 622.25, m: 75, yTreble: 60, type: 'black', acc: '♯' },
+        'E5': { f: 659.25, m: 76, yTreble: 50, type: 'white' },
+        'F5': { f: 698.46, m: 77, yTreble: 40, type: 'white' },
+        'F#5':{ f: 739.99, m: 78, yTreble: 40, type: 'black', acc: '♯' },
+        // Treble Extra High (Above Staff)
+        'G5': { f: 783.99, m: 79, yTreble: 30, type: 'white' },
+        'G#5':{ f: 830.61, m: 80, yTreble: 30, type: 'black', acc: '♯' },
+        'A5': { f: 880.00, m: 81, yTreble: 20, type: 'white' }
+    };
+
+    // Note ranges mapped perfectly to visually align black keys
+    const keysOrderTreble = ['C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','Bb4','B4','C5','C#5','D5','D#5','E5','F5','F#5','G5','G#5','A5'];
+    const keysOrderBass = ['E2','F2','F#2','G2','G#2','A2','Bb2','B2','C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','Bb3','B3','C4'];
+
+    function initApp() {
+        document.getElementById('start-screen').style.display = 'none';
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
+        loadExercise(); 
+    }
+
+    function buildKeyboard(keysArray) {
+        const kb = document.getElementById('keyboard');
+        kb.innerHTML = '';
+        let whiteCount = 0;
+        const totalWhite = keysArray.filter(k => pitches[k].type === 'white').length;
+        
+        keysArray.forEach(key => {
+            const p = pitches[key];
+            const div = document.createElement('div');
+            div.dataset.note = key;
+            
+            if(p.type === 'white') {
+                div.className = 'key-white';
+                whiteCount++;
+            } else {
+                div.className = 'key-black';
+                // Because each white key gets equal width, shifting a black key exactly by the
+                // percentage of white keys rendered places it perfectly on the crack between them.
+                div.style.left = `${(whiteCount / totalWhite) * 100}%`;
+                // Update black key width to scale well with the higher number of keys
+                div.style.width = `${100 / totalWhite * 0.65}%`; 
+                div.style.marginLeft = `-${100 / totalWhite * 0.325}%`;
+            }
+            
+            div.onmousedown = () => handleKeyPress(key, div);
+            div.ontouchstart = (e) => { e.preventDefault(); handleKeyPress(key, div); };
+            kb.appendChild(div);
+        });
+    }
+
+    function playSound(frequency) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 1);
+    }
+
+    function playTargetSound() {
+        if(currentIndex >= currentSequence.length) return;
+        const target = currentSequence[currentIndex];
+        const notesToPlay = Array.isArray(target) ? target : [target];
+        notesToPlay.forEach(n => playSound(pitches[n].f));
+    }
+
+    function speak(text) {
+        window.speechSynthesis.cancel();
+        clearTimeout(voiceTimeout);
+        voiceTimeout = setTimeout(() => {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.9;
+            window.speechSynthesis.speak(utterance);
+        }, 500);
+    }
+
+    function getChordName(notesArray) {
+        const sorted = notesArray.slice().sort().join(',');
+        if (sorted === 'C4,E4,G4' || sorted === 'C3,E3,G3') return 'C Major';
+        if (sorted === 'A4,C4,F4' || sorted === 'A3,C3,F3' || sorted === 'C3,F3,A3') return 'F Major';
+        if (sorted === 'B4,D4,G4' || sorted === 'B3,D3,G3' || sorted === 'D3,G3,B3') return 'G Major';
+        return 'Chord'; 
+    }
+
+    function loadExercise() {
+        const level = document.getElementById('level-select').value;
+        const clef = document.getElementById('clef-select').value;
+        const isTreble = clef === 'treble';
+        
+        // Update SVG Clef Symbol
+        const clefSymbol = document.getElementById('clef-symbol');
+        if (isTreble) {
+            clefSymbol.textContent = '𝄞';
+            clefSymbol.setAttribute('y', '110');
+            clefSymbol.setAttribute('font-size', '80');
+        } else {
+            clefSymbol.textContent = '𝄢';
+            clefSymbol.setAttribute('y', '95'); 
+            clefSymbol.setAttribute('font-size', '80');
+        }
+
+        // Rebuild Keyboard based on Clef
+        buildKeyboard(isTreble ? keysOrderTreble : keysOrderBass);
+
+        const notesLayer = document.getElementById('notes-layer');
+        notesLayer.innerHTML = '';
+        document.getElementById('feedback-layer').innerHTML = '';
+        
+        mistakes = 0;
+        currentIndex = 0;
+        chordProgress = [];
+        updateUIFeedback("🤔", "Let's play!", "black");
+        document.getElementById('help-btn').style.display = 'none';
+
+        // Select Sequences based on Clef with extended ranges
+        if(level === 'beginner') {
+            const basicNotes = isTreble 
+                ? ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5', 'D5', 'E5', 'F5', 'G5']
+                : ['E2', 'F2', 'G2', 'A2', 'B2', 'C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4'];
+            currentSequence = [basicNotes[Math.floor(Math.random() * basicNotes.length)]];
+        } else if (level === 'intermediate') {
+            const intermediatePool = isTreble ? [
+                ['C4', 'C4', 'G4', 'G4', 'A4', 'A4', 'G4'], // Twinkle
+                ['C4', 'C4', 'D4', 'C4', 'F4', 'E4'],       // Happy Birthday 
+                ['F4', 'F4', 'Bb4', 'Bb4', 'A4', 'A4', 'G4', 'F4'], // Bingo 
+                [['C4', 'E4', 'G4']], // C Major Chord
+                [['C4', 'F4', 'A4']], // F Major Chord
+                [['D4', 'G4', 'B4']]  // G Major Chord
+            ] : [
+                ['C3', 'C3', 'G3', 'G3', 'A3', 'A3', 'G3'], // Twinkle Bass
+                ['C3', 'C3', 'D3', 'C3', 'F3', 'E3'],       // Happy Birthday Bass
+                ['F3', 'F3', 'Bb3', 'Bb3', 'A3', 'A3', 'G3', 'F3'], // Bingo Bass
+                [['C3', 'E3', 'G3']], // C Major Chord Bass
+                [['C3', 'F3', 'A3']], // F Major Chord Bass (Inversion)
+                [['D3', 'G3', 'B3']]  // G Major Chord Bass (Inversion)
+            ];
+            currentSequence = intermediatePool[Math.floor(Math.random() * intermediatePool.length)];
+        } else {
+            const advancedPool = isTreble ? [
+                ['C4', ['C4', 'E4', 'G4'], 'F4', ['C4', 'F4', 'A4']], 
+                ['G4', 'F#4', 'G4', ['D4', 'G4', 'B4']], 
+                [['C4', 'E4', 'G4'], ['C4', 'F4', 'A4'], ['D4', 'G4', 'B4'], ['C4', 'E4', 'G4']] 
+            ] : [
+                ['C3', ['C3', 'E3', 'G3'], 'F3', ['C3', 'F3', 'A3']], 
+                ['G3', 'F#3', 'G3', ['D3', 'G3', 'B3']], 
+                [['C3', 'E3', 'G3'], ['C3', 'F3', 'A3'], ['D3', 'G3', 'B3'], ['C3', 'E3', 'G3']]
+            ];
+            currentSequence = advancedPool[Math.floor(Math.random() * advancedPool.length)];
+        }
+        
+        drawSequence();
+    }
+
+    function drawSequence() {
+        const layer = document.getElementById('notes-layer');
+        layer.innerHTML = '';
+        const startX = 80;
+        const spacing = 45;
+
+        currentSequence.forEach((item, index) => {
+            const x = startX + (index * spacing);
+            const notesToDraw = Array.isArray(item) ? item : [item];
+            
+            notesToDraw.forEach(note => {
+                const p = pitches[note];
+                let color = "black";
+                
+                if (index < currentIndex) {
+                    color = "#a0a0a0"; 
+                } else if (index === currentIndex && Array.isArray(item) && chordProgress.includes(note)) {
+                    color = "#4CAF50"; 
+                }
+                
+                drawNoteVisual(layer, x, p, color, index === currentIndex);
+            });
+        });
+    }
+
+    function drawNoteVisual(layer, x, pitchObj, color, isCurrent) {
+        const clef = document.getElementById('clef-select').value;
+        const yPos = clef === 'treble' ? pitchObj.yTreble : pitchObj.yBass;
+
+        // Dynamic Ledger Lines (drawn for any note positioned above or below the staff lines)
+        // Staff lines are located at Y coordinates: 40, 60, 80, 100, 120.
+        if (yPos >= 140) {
+            for (let l = 140; l <= yPos; l += 20) {
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", x - 15);
+                line.setAttribute("y1", l);
+                line.setAttribute("x2", x + 15);
+                line.setAttribute("y2", l);
+                line.setAttribute("stroke", color);
+                line.setAttribute("stroke-width", "2");
+                layer.appendChild(line);
+            }
+        }
+        if (yPos <= 20) {
+            for (let l = 20; l >= yPos; l -= 20) {
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", x - 15);
+                line.setAttribute("y1", l);
+                line.setAttribute("x2", x + 15);
+                line.setAttribute("y2", l);
+                line.setAttribute("stroke", color);
+                line.setAttribute("stroke-width", "2");
+                layer.appendChild(line);
+            }
+        }
+
+        const ellipse = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+        ellipse.setAttribute("cx", x);
+        ellipse.setAttribute("cy", yPos);
+        ellipse.setAttribute("rx", 10);
+        ellipse.setAttribute("ry", 7);
+        ellipse.setAttribute("fill", color);
+        ellipse.setAttribute("transform", `rotate(-15 ${x} ${yPos})`);
+        
+        if(isCurrent && color === "black") {
+            ellipse.setAttribute("stroke", "#4CAF50");
+            ellipse.setAttribute("stroke-width", "2");
+        }
+        layer.appendChild(ellipse);
+
+        if(pitchObj.acc) {
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            text.setAttribute("x", x - 25);
+            text.setAttribute("y", yPos + 5);
+            text.setAttribute("fill", color);
+            text.setAttribute("font-size", "20");
+            text.textContent = pitchObj.acc;
+            layer.appendChild(text);
+        }
+    }
+
+    function handleKeyPress(playedNote, element) {
+        if(currentIndex >= currentSequence.length) return;
+        
+        element.classList.add('active');
+        setTimeout(() => element.classList.remove('active'), 200);
+        
+        playSound(pitches[playedNote].f);
+        
+        const targetItem = currentSequence[currentIndex];
+        
+        if(Array.isArray(targetItem)) {
+            if(targetItem.includes(playedNote)) {
+                if(!chordProgress.includes(playedNote)) {
+                    chordProgress.push(playedNote);
+                }
+                drawSequence(); 
+                
+                if(chordProgress.length === targetItem.length) {
+                    handleCorrect();
+                } else {
+                    updateUIFeedback("😃", "Keep going!", "#4CAF50");
+                }
+            } else {
+                handleIncorrectChord(playedNote);
+            }
+        } else {
+            if (playedNote === targetItem) {
+                handleCorrect();
+            } else {
+                handleIncorrectSingle(playedNote, targetItem);
+            }
+        }
+    }
+
+    function handleCorrect() {
+        const targetItem = currentSequence[currentIndex];
+        const isChord = Array.isArray(targetItem);
+
+        updateUIFeedback("🎉 🐷", "Great Job!", "#4CAF50");
+        window.speechSynthesis.cancel();
+        
+        if (isChord) {
+            targetItem.forEach(n => playSound(pitches[n].f));
+            speak(getChordName(targetItem));
+        }
+        
+        currentIndex++;
+        chordProgress = []; 
+        drawSequence();
+        
+        if(currentIndex >= currentSequence.length) {
+            const delayBeforeEnd = isChord ? 2000 : 500;
+            setTimeout(() => {
+                updateUIFeedback("🎉 🐷", "You did it!", "#4CAF50");
+                speak("Great job!");
+                setTimeout(loadExercise, 1500);
+            }, delayBeforeEnd);
+        }
+    }
+
+    function handleIncorrectSingle(playedNote, targetNote) {
+        mistakes++;
+        const pPlayed = pitches[playedNote];
+        const pTarget = pitches[targetNote];
+        
+        const isHigh = pPlayed.m > pTarget.m;
+        const msg = isHigh ? "Too High!" : "Too Low!";
+        
+        updateUIFeedback("😢", msg, "red");
+        speak(isHigh ? "Too high" : "Too low");
+        
+        showMistakeVisual(playedNote);
+    }
+
+    function handleIncorrectChord(playedNote) {
+        mistakes++;
+        updateUIFeedback("😢", "Try again!", "red");
+        speak("Try again");
+        showMistakeVisual(playedNote);
+    }
+
+    function showMistakeVisual(playedNote) {
+        if (mistakes >= 3) {
+            document.getElementById('help-btn').style.display = 'inline-block';
+        }
+
+        const feedbackLayer = document.getElementById('feedback-layer');
+        feedbackLayer.innerHTML = '';
+        
+        const startX = 80;
+        const spacing = 45;
+        const currentX = startX + (currentIndex * spacing);
+        
+        drawNoteVisual(feedbackLayer, currentX, pitches[playedNote], "red", false);
+        
+        clearTimeout(visualTimeout);
+        visualTimeout = setTimeout(() => {
+            feedbackLayer.innerHTML = '';
+        }, 800);
+    }
+
+    function updateUIFeedback(emoji, text, color) {
+        document.getElementById('face-emoji').textContent = emoji;
+        const textSpan = document.getElementById('feedback-text');
+        textSpan.textContent = text;
+        textSpan.style.color = color;
+    }
+</script>
+</body>
+</html>
