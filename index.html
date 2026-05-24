@@ -91,6 +91,7 @@
         <option value="single">Single Notes</option>
         <option value="songs">Songs</option>
         <option value="chords">Chord Practice</option>
+        <option value="freeplay">Free Play</option>
     </select>
     
     <select id="accidentals-select" onchange="loadExercise()">
@@ -412,12 +413,16 @@
         currentIndex = 0;
         chordProgress = [];
         currentChordTarget = null;
-        updateUIFeedback("🤔", "Let's play!", "black");
         document.getElementById('help-btn').style.display = 'none';
 
         let newChoice;
         
-        if (level === 'single') {
+        if (level === 'freeplay') {
+            currentSequence = [];
+            updateUIFeedback("🎹", "Free Play!", "black");
+            
+        } else if (level === 'single') {
+            updateUIFeedback("🤔", "Let's play!", "black");
             const acc = document.getElementById('accidentals-select').value;
             let pool = isTreble ? keysOrderTreble : keysOrderBass;
             if (acc === 'none') {
@@ -428,16 +433,20 @@
             
             lastSequenceData = newChoice;
             currentSequence = [newChoice];
+            drawSequence();
             
         } else if (level === 'songs') {
+            updateUIFeedback("🤔", "Let's play!", "black");
             const pool = songPools[isTreble ? 'treble' : 'bass'];
             do { newChoice = pool[Math.floor(Math.random() * pool.length)]; }
             while(JSON.stringify(newChoice) === lastSequenceData && pool.length > 1);
             
             lastSequenceData = JSON.stringify(newChoice);
             currentSequence = newChoice;
+            drawSequence();
             
         } else if (level === 'chords') {
+            updateUIFeedback("🤔", "Let's play!", "black");
             const keySig = document.getElementById('key-select').value;
             const pool = chordDict[keySig][isTreble ? 'treble' : 'bass'];
             do { newChoice = pool[Math.floor(Math.random() * pool.length)]; }
@@ -448,9 +457,8 @@
             currentSequence = [newChoice.notes]; 
             
             renderMultipleChoice(newChoice, pool);
+            drawSequence();
         }
-        
-        drawSequence();
     }
 
     function drawSequence() {
@@ -523,11 +531,34 @@
     }
 
     function handleKeyPress(playedNote, element) {
-        if(currentIndex >= currentSequence.length) return;
+        const level = document.getElementById('level-select').value;
         
         element.classList.add('active');
         setTimeout(() => element.classList.remove('active'), 200);
         playSound(pitches[playedNote].f);
+        
+        // Free Play Logic
+        if (level === 'freeplay') {
+            const layer = document.getElementById('notes-layer');
+            layer.innerHTML = '';
+            
+            // Draw the note in the middle of the staff
+            drawNoteVisual(layer, 225, pitches[playedNote], "black", false);
+            
+            // Show the note name (stripping out the octave number)
+            const noteName = playedNote.replace(/[0-9]/g, '');
+            updateUIFeedback("🎶", noteName, "#2196F3");
+            
+            // Clear the note after 1 second
+            clearTimeout(visualTimeout);
+            visualTimeout = setTimeout(() => {
+                layer.innerHTML = '';
+                updateUIFeedback("🎹", "Free Play!", "black");
+            }, 1000);
+            return;
+        }
+        
+        if(currentIndex >= currentSequence.length) return;
         
         const targetNote = currentSequence[currentIndex];
         
