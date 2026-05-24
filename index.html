@@ -25,14 +25,17 @@
         border-radius: 15px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     button:active { transform: translateY(2px); }
+    
     #controls { margin-bottom: 10px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-    select { font-size: 20px; padding: 5px; border-radius: 10px; }
+    select { font-size: 18px; padding: 5px; border-radius: 10px; border: 1px solid #ccc; background: white; }
+    
     #staff-container {
         background: white; border-radius: 15px; padding: 10px;
         box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin: 10px auto;
         max-width: 600px; overflow-x: auto;
     }
     svg { width: 100%; max-height: 200px; display: block; }
+    
     #feedback-area {
         height: 80px; display: flex; justify-content: center; align-items: center;
         font-size: 40px; font-weight: bold; margin-bottom: 10px;
@@ -57,6 +60,18 @@
         border-bottom-right-radius: 3px; cursor: pointer;
     }
     .key-black:active, .key-black.active { background: #333; }
+
+    /* Multiple Choice Buttons for Chords */
+    #multiple-choice {
+        display: none; justify-content: center; gap: 15px; flex-wrap: wrap; max-width: 800px; margin: 0 auto;
+    }
+    .mc-btn {
+        font-size: 20px; padding: 15px 25px; margin: 5px;
+        background-color: #9C27B0; color: white; border: none;
+        border-radius: 12px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    }
+    .mc-btn.correct { background-color: #4CAF50; }
+    .mc-btn.wrong { background-color: #F44336; }
 </style>
 </head>
 <body>
@@ -72,22 +87,41 @@
         <option value="treble">Treble Clef (𝄞)</option>
         <option value="bass">Bass Clef (𝄢)</option>
     </select>
-    <select id="level-select" onchange="loadExercise()">
-        <option value="beginner">Beginner (Single Notes)</option>
-        <option value="intermediate">Intermediate (Songs & Chords)</option>
-        <option value="advanced">Advanced (Mixed Keys)</option>
+    <select id="level-select" onchange="onLevelChange()">
+        <option value="single">Single Notes</option>
+        <option value="songs">Songs</option>
+        <option value="chords">Chord Practice</option>
+    </select>
+    
+    <select id="accidentals-select" onchange="loadExercise()">
+        <option value="none">No Sharps/Flats</option>
+        <option value="all">Include Sharps/Flats</option>
+    </select>
+    
+    <select id="key-select" onchange="loadExercise()" style="display:none;">
+        <option value="C">C Major (0)</option>
+        <option disabled>── Sharps ──</option>
+        <option value="G">G Major (1♯)</option>
+        <option value="D">D Major (2♯)</option>
+        <option value="A">A Major (3♯)</option>
+        <option value="E">E Major (4♯)</option>
+        <option value="B">B Major (5♯)</option>
+        <option disabled>── Flats ──</option>
+        <option value="F">F Major (1♭)</option>
+        <option value="Bb">Bb Major (2♭)</option>
+        <option value="Eb">Eb Major (3♭)</option>
+        <option value="Ab">Ab Major (4♭)</option>
+        <option value="Db">Db Major (5♭)</option>
     </select>
 </div>
 
 <div id="staff-container">
     <svg id="staff" viewBox="0 0 450 200">
-        <!-- Staff Lines -->
         <line x1="0" y1="40" x2="450" y2="40" stroke="black" stroke-width="2"/>
         <line x1="0" y1="60" x2="450" y2="60" stroke="black" stroke-width="2"/>
         <line x1="0" y1="80" x2="450" y2="80" stroke="black" stroke-width="2"/>
         <line x1="0" y1="100" x2="450" y2="100" stroke="black" stroke-width="2"/>
         <line x1="0" y1="120" x2="450" y2="120" stroke="black" stroke-width="2"/>
-        <!-- Clef Symbol -->
         <text id="clef-symbol" x="10" y="110" font-size="80" font-family="serif">𝄞</text>
         <g id="notes-layer"></g>
         <g id="feedback-layer"></g>
@@ -101,82 +135,176 @@
 </div>
 
 <div id="keyboard"></div>
+<div id="multiple-choice"></div>
 
 <script>
-    // Audio Context
     let audioCtx;
     let voiceTimeout;
     let visualTimeout;
     
-    // App State
     let currentSequence = [];
     let currentIndex = 0;
     let chordProgress = []; 
     let mistakes = 0;
+    let lastSequenceData = null; 
+    let currentChordTarget = null; 
     
-    // Pitch Definitions & Y-Coordinates for the expanded ranges
+    // Y-Coordinates accurately track standard staff lines. Enharmonics duplicate frequencies but correct Y-positions.
     const pitches = {
-        // Bass Extra Low (Below Staff)
         'E2': { f: 82.41, m: 40, yBass: 140, type: 'white' },
         'F2': { f: 87.31, m: 41, yBass: 130, type: 'white' },
         'F#2':{ f: 92.50, m: 42, yBass: 130, type: 'black', acc: '♯' },
-        // Bass Staff
+        'Gb2':{ f: 92.50, m: 42, yBass: 120, type: 'black', acc: '♭' },
         'G2': { f: 98.00, m: 43, yBass: 120, type: 'white' },
         'G#2':{ f: 103.83, m: 44, yBass: 120, type: 'black', acc: '♯' },
+        'Ab2':{ f: 103.83, m: 44, yBass: 110, type: 'black', acc: '♭' },
         'A2': { f: 110.00, m: 45, yBass: 110, type: 'white' },
-        'Bb2':{ f: 116.54, m: 46, yBass: 110, type: 'black', acc: '♭' },
+        'A#2':{ f: 116.54, m: 46, yBass: 110, type: 'black', acc: '♯' },
+        'Bb2':{ f: 116.54, m: 46, yBass: 100, type: 'black', acc: '♭' },
         'B2': { f: 123.47, m: 47, yBass: 100, type: 'white' },
         'C3': { f: 130.81, m: 48, yBass: 90, type: 'white' },
         'C#3':{ f: 138.59, m: 49, yBass: 90, type: 'black', acc: '♯' },
+        'Db3':{ f: 138.59, m: 49, yBass: 80, type: 'black', acc: '♭' },
         'D3': { f: 146.83, m: 50, yBass: 80, type: 'white' },
         'D#3':{ f: 155.56, m: 51, yBass: 80, type: 'black', acc: '♯' },
+        'Eb3':{ f: 155.56, m: 51, yBass: 70, type: 'black', acc: '♭' },
         'E3': { f: 164.81, m: 52, yBass: 70, type: 'white' },
         'F3': { f: 174.61, m: 53, yBass: 60, type: 'white' },
         'F#3':{ f: 185.00, m: 54, yBass: 60, type: 'black', acc: '♯' },
+        'Gb3':{ f: 185.00, m: 54, yBass: 50, type: 'black', acc: '♭' },
         'G3': { f: 196.00, m: 55, yBass: 50, type: 'white' },
         'G#3':{ f: 207.65, m: 56, yBass: 50, type: 'black', acc: '♯' },
+        'Ab3':{ f: 207.65, m: 56, yBass: 40, type: 'black', acc: '♭' },
         'A3': { f: 220.00, m: 57, yBass: 40, type: 'white' },
-        // Bass Extra High (Above Staff)
+        'A#3':{ f: 233.08, m: 58, yBass: 40, type: 'black', acc: '♯' },
         'Bb3':{ f: 233.08, m: 58, yBass: 30, type: 'black', acc: '♭' },
         'B3': { f: 246.94, m: 59, yBass: 30, type: 'white' },
-        // Middle C (Shared - Below Treble, Above Bass)
         'C4': { f: 261.63, m: 60, yTreble: 140, yBass: 20, type: 'white' },
         'C#4':{ f: 277.18, m: 61, yTreble: 140, yBass: 20, type: 'black', acc: '♯' },
-        // Treble Extra Low (Below Staff)
+        'Db4':{ f: 277.18, m: 61, yTreble: 130, yBass: 10, type: 'black', acc: '♭' },
         'D4': { f: 293.66, m: 62, yTreble: 130, type: 'white' },
         'D#4':{ f: 311.13, m: 63, yTreble: 130, type: 'black', acc: '♯' },
-        // Treble Staff
+        'Eb4':{ f: 311.13, m: 63, yTreble: 120, type: 'black', acc: '♭' },
         'E4': { f: 329.63, m: 64, yTreble: 120, type: 'white' },
         'F4': { f: 349.23, m: 65, yTreble: 110, type: 'white' },
         'F#4':{ f: 369.99, m: 66, yTreble: 110, type: 'black', acc: '♯' },
+        'Gb4':{ f: 369.99, m: 66, yTreble: 100, type: 'black', acc: '♭' },
         'G4': { f: 392.00, m: 67, yTreble: 100, type: 'white' },
         'G#4':{ f: 415.30, m: 68, yTreble: 100, type: 'black', acc: '♯' },
+        'Ab4':{ f: 415.30, m: 68, yTreble: 90, type: 'black', acc: '♭' },
         'A4': { f: 440.00, m: 69, yTreble: 90, type: 'white' },
+        'A#4':{ f: 466.16, m: 70, yTreble: 90, type: 'black', acc: '♯' },
         'Bb4':{ f: 466.16, m: 70, yTreble: 80, type: 'black', acc: '♭' },
         'B4': { f: 493.88, m: 71, yTreble: 80, type: 'white' },
         'C5': { f: 523.25, m: 72, yTreble: 70, type: 'white' },
         'C#5':{ f: 554.37, m: 73, yTreble: 70, type: 'black', acc: '♯' },
+        'Db5':{ f: 554.37, m: 73, yTreble: 60, type: 'black', acc: '♭' },
         'D5': { f: 587.33, m: 74, yTreble: 60, type: 'white' },
         'D#5':{ f: 622.25, m: 75, yTreble: 60, type: 'black', acc: '♯' },
+        'Eb5':{ f: 622.25, m: 75, yTreble: 50, type: 'black', acc: '♭' },
         'E5': { f: 659.25, m: 76, yTreble: 50, type: 'white' },
         'F5': { f: 698.46, m: 77, yTreble: 40, type: 'white' },
         'F#5':{ f: 739.99, m: 78, yTreble: 40, type: 'black', acc: '♯' },
-        // Treble Extra High (Above Staff)
+        'Gb5':{ f: 739.99, m: 78, yTreble: 30, type: 'black', acc: '♭' },
         'G5': { f: 783.99, m: 79, yTreble: 30, type: 'white' },
         'G#5':{ f: 830.61, m: 80, yTreble: 30, type: 'black', acc: '♯' },
+        'Ab5':{ f: 830.61, m: 80, yTreble: 20, type: 'black', acc: '♭' },
         'A5': { f: 880.00, m: 81, yTreble: 20, type: 'white' },
+        'A#5':{ f: 932.33, m: 82, yTreble: 20, type: 'black', acc: '♯' },
         'Bb5':{ f: 932.33, m: 82, yTreble: 20, type: 'black', acc: '♭' }
     };
 
-    // Note ranges mapped perfectly to visually align black keys
+    // The rendered keys ignore enharmonics to avoid drawing duplicate keys
     const keysOrderTreble = ['C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','Bb4','B4','C5','C#5','D5','D#5','E5','F5','F#5','G5','G#5','A5','Bb5'];
     const keysOrderBass = ['E2','F2','F#2','G2','G#2','A2','Bb2','B2','C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','Bb3','B3','C4','C#4'];
+
+    const songPools = {
+        treble: [
+            ['C4','C4','G4','G4','A4','A4','G4'], // Twinkle (7 notes)
+            ['C4','C4','D4','C4','F4','E4'],      // Happy Birthday (6 notes)
+            ['F4','F4','Bb4','Bb4','A4','A4','G4','F4'], // Bingo (8 notes)
+            ['E4','D4','C4','D4','E4','E4','E4'], // Mary Had A Little Lamb (7 notes)
+            ['C4','C4','C4','D4','E4'], // Row Your Boat (5 notes)
+            ['E4','E4','F4','G4','G4','F4','E4','D4'], // Ode to Joy (8 notes)
+            ['E4','E4','E4','E4','E4','E4'], // Jingle Bells (6 notes)
+            ['G4','G4','G4','D4','E4','E4','D4'] // Old MacDonald (7 notes)
+        ],
+        bass: [
+            ['C3','C3','G3','G3','A3','A3','G3'], 
+            ['C3','C3','D3','C3','F3','E3'],      
+            ['F3','F3','Bb3','Bb3','A3','A3','G3','F3'], 
+            ['E3','D3','C3','D3','E3','E3','E3'], 
+            ['C3','C3','C3','D3','E3'], 
+            ['E3','E3','F3','G3','G3','F3','E3','D3'], 
+            ['E3','E3','E3','E3','E3','E3'], 
+            ['G3','G3','G3','D3','E3','E3','D3'] 
+        ]
+    };
+
+    // 4 common diatonic chords (I, IV, V, vi) per key signature to populate Multiple Choice 
+    const chordDict = {
+        'C': {
+            treble: [ {name:'C Major', notes:['C4','E4','G4']}, {name:'F Major', notes:['F4','A4','C5']}, {name:'G Major', notes:['G4','B4','D5']}, {name:'A minor', notes:['A4','C5','E5']} ],
+            bass:   [ {name:'C Major', notes:['C3','E3','G3']}, {name:'F Major', notes:['F3','A3','C4']}, {name:'G Major', notes:['G2','B2','D3']}, {name:'A minor', notes:['A2','C3','E3']} ]
+        },
+        'G': {
+            treble: [ {name:'G Major', notes:['G4','B4','D5']}, {name:'C Major', notes:['C4','E4','G4']}, {name:'D Major', notes:['D4','F#4','A4']}, {name:'E minor', notes:['E4','G4','B4']} ],
+            bass:   [ {name:'G Major', notes:['G2','B2','D3']}, {name:'C Major', notes:['C3','E3','G3']}, {name:'D Major', notes:['D3','F#3','A3']}, {name:'E minor', notes:['E3','G3','B3']} ]
+        },
+        'D': {
+            treble: [ {name:'D Major', notes:['D4','F#4','A4']}, {name:'G Major', notes:['G4','B4','D5']}, {name:'A Major', notes:['A4','C#5','E5']}, {name:'B minor', notes:['B4','D5','F#5']} ],
+            bass:   [ {name:'D Major', notes:['D3','F#3','A3']}, {name:'G Major', notes:['G2','B2','D3']}, {name:'A Major', notes:['A2','C#3','E3']}, {name:'B minor', notes:['B2','D3','F#3']} ]
+        },
+        'A': {
+            treble: [ {name:'A Major', notes:['A4','C#5','E5']}, {name:'D Major', notes:['D4','F#4','A4']}, {name:'E Major', notes:['E4','G#4','B4']}, {name:'F# minor', notes:['F#4','A4','C#5']} ],
+            bass:   [ {name:'A Major', notes:['A2','C#3','E3']}, {name:'D Major', notes:['D3','F#3','A3']}, {name:'E Major', notes:['E3','G#3','B3']}, {name:'F# minor', notes:['F#2','A2','C#3']} ]
+        },
+        'E': {
+            treble: [ {name:'E Major', notes:['E4','G#4','B4']}, {name:'A Major', notes:['A4','C#5','E5']}, {name:'B Major', notes:['B4','D#5','F#5']}, {name:'C# minor', notes:['C#4','E4','G#4']} ],
+            bass:   [ {name:'E Major', notes:['E3','G#3','B3']}, {name:'A Major', notes:['A2','C#3','E3']}, {name:'B Major', notes:['B2','D#3','F#3']}, {name:'C# minor', notes:['C#3','E3','G#3']} ]
+        },
+        'B': {
+            treble: [ {name:'B Major', notes:['B4','D#5','F#5']}, {name:'E Major', notes:['E4','G#4','B4']}, {name:'F# Major', notes:['F#4','A#4','C#5']}, {name:'G# minor', notes:['G#4','B4','D#5']} ],
+            bass:   [ {name:'B Major', notes:['B2','D#3','F#3']}, {name:'E Major', notes:['E3','G#3','B3']}, {name:'F# Major', notes:['F#2','A#2','C#3']}, {name:'G# minor', notes:['G#2','B2','D#3']} ]
+        },
+        'F': {
+            treble: [ {name:'F Major', notes:['F4','A4','C5']}, {name:'Bb Major', notes:['Bb4','D5','F5']}, {name:'C Major', notes:['C4','E4','G4']}, {name:'D minor', notes:['D4','F4','A4']} ],
+            bass:   [ {name:'F Major', notes:['F3','A3','C4']}, {name:'Bb Major', notes:['Bb2','D3','F3']}, {name:'C Major', notes:['C3','E3','G3']}, {name:'D minor', notes:['D3','F3','A3']} ]
+        },
+        'Bb': {
+            treble: [ {name:'Bb Major', notes:['Bb4','D5','F5']}, {name:'Eb Major', notes:['Eb4','G4','Bb4']}, {name:'F Major', notes:['F4','A4','C5']}, {name:'G minor', notes:['G4','Bb4','D5']} ],
+            bass:   [ {name:'Bb Major', notes:['Bb2','D3','F3']}, {name:'Eb Major', notes:['Eb3','G3','Bb3']}, {name:'F Major', notes:['F3','A3','C4']}, {name:'G minor', notes:['G2','Bb2','D3']} ]
+        },
+        'Eb': {
+            treble: [ {name:'Eb Major', notes:['Eb4','G4','Bb4']}, {name:'Ab Major', notes:['Ab4','C5','Eb5']}, {name:'Bb Major', notes:['Bb4','D5','F5']}, {name:'C minor', notes:['C4','Eb4','G4']} ],
+            bass:   [ {name:'Eb Major', notes:['Eb3','G3','Bb3']}, {name:'Ab Major', notes:['Ab2','C3','Eb3']}, {name:'Bb Major', notes:['Bb2','D3','F3']}, {name:'C minor', notes:['C3','Eb3','G3']} ]
+        },
+        'Ab': {
+            treble: [ {name:'Ab Major', notes:['Ab4','C5','Eb5']}, {name:'Db Major', notes:['Db4','F4','Ab4']}, {name:'Eb Major', notes:['Eb4','G4','Bb4']}, {name:'F minor', notes:['F4','Ab4','C5']} ],
+            bass:   [ {name:'Ab Major', notes:['Ab2','C3','Eb3']}, {name:'Db Major', notes:['Db3','F3','Ab3']}, {name:'Eb Major', notes:['Eb3','G3','Bb3']}, {name:'F minor', notes:['F3','A3','C4']} ]
+        },
+        'Db': {
+            treble: [ {name:'Db Major', notes:['Db4','F4','Ab4']}, {name:'Gb Major', notes:['Gb4','Bb4','Db5']}, {name:'Ab Major', notes:['Ab4','C5','Eb5']}, {name:'Bb minor', notes:['Bb4','Db5','F5']} ],
+            bass:   [ {name:'Db Major', notes:['Db3','F3','Ab3']}, {name:'Gb Major', notes:['Gb2','Bb2','Db3']}, {name:'Ab Major', notes:['Ab2','C3','Eb3']}, {name:'Bb minor', notes:['Bb2','Db3','F3']} ]
+        }
+    };
 
     function initApp() {
         document.getElementById('start-screen').style.display = 'none';
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         audioCtx = new AudioContext();
-        loadExercise(); 
+        onLevelChange();
+    }
+
+    function onLevelChange() {
+        const level = document.getElementById('level-select').value;
+        document.getElementById('accidentals-select').style.display = level === 'single' ? 'inline-block' : 'none';
+        document.getElementById('key-select').style.display = level === 'chords' ? 'inline-block' : 'none';
+        document.getElementById('keyboard').style.display = level === 'chords' ? 'none' : 'flex';
+        document.getElementById('multiple-choice').style.display = level === 'chords' ? 'flex' : 'none';
+        
+        lastSequenceData = null; // Reset streak memory
+        loadExercise();
     }
 
     function buildKeyboard(keysArray) {
@@ -195,10 +323,7 @@
                 whiteCount++;
             } else {
                 div.className = 'key-black';
-                // Because each white key gets equal width, shifting a black key exactly by the
-                // percentage of white keys rendered places it perfectly on the crack between them.
                 div.style.left = `${(whiteCount / totalWhite) * 100}%`;
-                // Update black key width to scale well with the higher number of keys
                 div.style.width = `${100 / totalWhite * 0.65}%`; 
                 div.style.marginLeft = `-${100 / totalWhite * 0.325}%`;
             }
@@ -224,10 +349,13 @@
     }
 
     function playTargetSound() {
-        if(currentIndex >= currentSequence.length) return;
-        const target = currentSequence[currentIndex];
-        const notesToPlay = Array.isArray(target) ? target : [target];
-        notesToPlay.forEach(n => playSound(pitches[n].f));
+        const level = document.getElementById('level-select').value;
+        if (level === 'chords' && currentChordTarget) {
+            currentChordTarget.notes.forEach(n => playSound(pitches[n].f));
+        } else {
+            if(currentIndex >= currentSequence.length) return;
+            playSound(pitches[currentSequence[currentIndex]].f);
+        }
     }
 
     function speak(text) {
@@ -240,12 +368,23 @@
         }, 500);
     }
 
-    function getChordName(notesArray) {
-        const sorted = notesArray.slice().sort().join(',');
-        if (sorted === 'C4,E4,G4' || sorted === 'C3,E3,G3') return 'C Major';
-        if (sorted === 'A4,C4,F4' || sorted === 'A3,C3,F3' || sorted === 'C3,F3,A3') return 'F Major';
-        if (sorted === 'B4,D4,G4' || sorted === 'B3,D3,G3' || sorted === 'D3,G3,B3') return 'G Major';
-        return 'Chord'; 
+    function renderMultipleChoice(correctObj, pool) {
+        const mc = document.getElementById('multiple-choice');
+        mc.innerHTML = '';
+        
+        let others = pool.filter(c => c.name !== correctObj.name);
+        others.sort(() => Math.random() - 0.5);
+        
+        let options = [correctObj, others[0], others[1], others[2]];
+        options.sort(() => Math.random() - 0.5); 
+        
+        options.forEach(opt => {
+            const btn = document.createElement('button');
+            btn.textContent = opt.name;
+            btn.className = 'mc-btn';
+            btn.onclick = () => handleChoiceClick(opt.name, correctObj.name, btn);
+            mc.appendChild(btn);
+        });
     }
 
     function loadExercise() {
@@ -253,7 +392,6 @@
         const clef = document.getElementById('clef-select').value;
         const isTreble = clef === 'treble';
         
-        // Update SVG Clef Symbol
         const clefSymbol = document.getElementById('clef-symbol');
         if (isTreble) {
             clefSymbol.textContent = '𝄞';
@@ -265,53 +403,51 @@
             clefSymbol.setAttribute('font-size', '80');
         }
 
-        // Rebuild Keyboard based on Clef
         buildKeyboard(isTreble ? keysOrderTreble : keysOrderBass);
 
-        const notesLayer = document.getElementById('notes-layer');
-        notesLayer.innerHTML = '';
+        document.getElementById('notes-layer').innerHTML = '';
         document.getElementById('feedback-layer').innerHTML = '';
         
         mistakes = 0;
         currentIndex = 0;
         chordProgress = [];
+        currentChordTarget = null;
         updateUIFeedback("🤔", "Let's play!", "black");
         document.getElementById('help-btn').style.display = 'none';
 
-        // Select Sequences based on Clef with extended ranges
-        if(level === 'beginner') {
-            const basicNotes = isTreble 
-                ? ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5', 'D5', 'E5', 'F5', 'G5']
-                : ['E2', 'F2', 'G2', 'A2', 'B2', 'C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4'];
-            currentSequence = [basicNotes[Math.floor(Math.random() * basicNotes.length)]];
-        } else if (level === 'intermediate') {
-            const intermediatePool = isTreble ? [
-                ['C4', 'C4', 'G4', 'G4', 'A4', 'A4', 'G4'], // Twinkle
-                ['C4', 'C4', 'D4', 'C4', 'F4', 'E4'],       // Happy Birthday 
-                ['F4', 'F4', 'Bb4', 'Bb4', 'A4', 'A4', 'G4', 'F4'], // Bingo 
-                [['C4', 'E4', 'G4']], // C Major Chord
-                [['C4', 'F4', 'A4']], // F Major Chord
-                [['D4', 'G4', 'B4']]  // G Major Chord
-            ] : [
-                ['C3', 'C3', 'G3', 'G3', 'A3', 'A3', 'G3'], // Twinkle Bass
-                ['C3', 'C3', 'D3', 'C3', 'F3', 'E3'],       // Happy Birthday Bass
-                ['F3', 'F3', 'Bb3', 'Bb3', 'A3', 'A3', 'G3', 'F3'], // Bingo Bass
-                [['C3', 'E3', 'G3']], // C Major Chord Bass
-                [['C3', 'F3', 'A3']], // F Major Chord Bass (Inversion)
-                [['D3', 'G3', 'B3']]  // G Major Chord Bass (Inversion)
-            ];
-            currentSequence = intermediatePool[Math.floor(Math.random() * intermediatePool.length)];
-        } else {
-            const advancedPool = isTreble ? [
-                ['C4', ['C4', 'E4', 'G4'], 'F4', ['C4', 'F4', 'A4']], 
-                ['G4', 'F#4', 'G4', ['D4', 'G4', 'B4']], 
-                [['C4', 'E4', 'G4'], ['C4', 'F4', 'A4'], ['D4', 'G4', 'B4'], ['C4', 'E4', 'G4']] 
-            ] : [
-                ['C3', ['C3', 'E3', 'G3'], 'F3', ['C3', 'F3', 'A3']], 
-                ['G3', 'F#3', 'G3', ['D3', 'G3', 'B3']], 
-                [['C3', 'E3', 'G3'], ['C3', 'F3', 'A3'], ['D3', 'G3', 'B3'], ['C3', 'E3', 'G3']]
-            ];
-            currentSequence = advancedPool[Math.floor(Math.random() * advancedPool.length)];
+        let newChoice;
+        
+        if (level === 'single') {
+            const acc = document.getElementById('accidentals-select').value;
+            let pool = isTreble ? keysOrderTreble : keysOrderBass;
+            if (acc === 'none') {
+                pool = pool.filter(n => pitches[n].type === 'white');
+            }
+            do { newChoice = pool[Math.floor(Math.random() * pool.length)]; }
+            while(newChoice === lastSequenceData && pool.length > 1);
+            
+            lastSequenceData = newChoice;
+            currentSequence = [newChoice];
+            
+        } else if (level === 'songs') {
+            const pool = songPools[isTreble ? 'treble' : 'bass'];
+            do { newChoice = pool[Math.floor(Math.random() * pool.length)]; }
+            while(JSON.stringify(newChoice) === lastSequenceData && pool.length > 1);
+            
+            lastSequenceData = JSON.stringify(newChoice);
+            currentSequence = newChoice;
+            
+        } else if (level === 'chords') {
+            const keySig = document.getElementById('key-select').value;
+            const pool = chordDict[keySig][isTreble ? 'treble' : 'bass'];
+            do { newChoice = pool[Math.floor(Math.random() * pool.length)]; }
+            while(newChoice.name === lastSequenceData && pool.length > 1);
+            
+            lastSequenceData = newChoice.name;
+            currentChordTarget = newChoice;
+            currentSequence = [newChoice.notes]; 
+            
+            renderMultipleChoice(newChoice, pool);
         }
         
         drawSequence();
@@ -333,55 +469,45 @@
                 
                 if (index < currentIndex) {
                     color = "#a0a0a0"; 
-                } else if (index === currentIndex && Array.isArray(item) && chordProgress.includes(note)) {
+                } else if (Array.isArray(item) && chordProgress.includes(note)) {
                     color = "#4CAF50"; 
                 }
                 
-                drawNoteVisual(layer, x, p, color, index === currentIndex);
+                drawNoteVisual(layer, x, p, color, index === currentIndex && !Array.isArray(item));
             });
         });
     }
 
-    function drawNoteVisual(layer, x, pitchObj, color, isCurrent) {
+    function drawNoteVisual(layer, x, pitchObj, color, isCurrentSingle) {
         const clef = document.getElementById('clef-select').value;
         const yPos = clef === 'treble' ? pitchObj.yTreble : pitchObj.yBass;
 
-        // Dynamic Ledger Lines (drawn for any note positioned above or below the staff lines)
-        // Staff lines are located at Y coordinates: 40, 60, 80, 100, 120.
         if (yPos >= 140) {
             for (let l = 140; l <= yPos; l += 20) {
                 const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                line.setAttribute("x1", x - 15);
-                line.setAttribute("y1", l);
-                line.setAttribute("x2", x + 15);
-                line.setAttribute("y2", l);
-                line.setAttribute("stroke", color);
-                line.setAttribute("stroke-width", "2");
+                line.setAttribute("x1", x - 15); line.setAttribute("y1", l);
+                line.setAttribute("x2", x + 15); line.setAttribute("y2", l);
+                line.setAttribute("stroke", color); line.setAttribute("stroke-width", "2");
                 layer.appendChild(line);
             }
         }
         if (yPos <= 20) {
             for (let l = 20; l >= yPos; l -= 20) {
                 const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                line.setAttribute("x1", x - 15);
-                line.setAttribute("y1", l);
-                line.setAttribute("x2", x + 15);
-                line.setAttribute("y2", l);
-                line.setAttribute("stroke", color);
-                line.setAttribute("stroke-width", "2");
+                line.setAttribute("x1", x - 15); line.setAttribute("y1", l);
+                line.setAttribute("x2", x + 15); line.setAttribute("y2", l);
+                line.setAttribute("stroke", color); line.setAttribute("stroke-width", "2");
                 layer.appendChild(line);
             }
         }
 
         const ellipse = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
-        ellipse.setAttribute("cx", x);
-        ellipse.setAttribute("cy", yPos);
-        ellipse.setAttribute("rx", 10);
-        ellipse.setAttribute("ry", 7);
+        ellipse.setAttribute("cx", x); ellipse.setAttribute("cy", yPos);
+        ellipse.setAttribute("rx", 10); ellipse.setAttribute("ry", 7);
         ellipse.setAttribute("fill", color);
         ellipse.setAttribute("transform", `rotate(-15 ${x} ${yPos})`);
         
-        if(isCurrent && color === "black") {
+        if(isCurrentSingle && color === "black") {
             ellipse.setAttribute("stroke", "#4CAF50");
             ellipse.setAttribute("stroke-width", "2");
         }
@@ -389,10 +515,8 @@
 
         if(pitchObj.acc) {
             const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            text.setAttribute("x", x - 25);
-            text.setAttribute("y", yPos + 5);
-            text.setAttribute("fill", color);
-            text.setAttribute("font-size", "20");
+            text.setAttribute("x", x - 25); text.setAttribute("y", yPos + 5);
+            text.setAttribute("fill", color); text.setAttribute("font-size", "20");
             text.textContent = pitchObj.acc;
             layer.appendChild(text);
         }
@@ -403,107 +527,68 @@
         
         element.classList.add('active');
         setTimeout(() => element.classList.remove('active'), 200);
-        
         playSound(pitches[playedNote].f);
         
-        const targetItem = currentSequence[currentIndex];
+        const targetNote = currentSequence[currentIndex];
         
-        if(Array.isArray(targetItem)) {
-            if(targetItem.includes(playedNote)) {
-                if(!chordProgress.includes(playedNote)) {
-                    chordProgress.push(playedNote);
-                }
-                drawSequence(); 
-                
-                if(chordProgress.length === targetItem.length) {
-                    handleCorrect();
-                } else {
-                    updateUIFeedback("😃", "Keep going!", "#4CAF50");
-                }
-            } else {
-                handleIncorrectChord(playedNote);
+        if (playedNote === targetNote) {
+            updateUIFeedback("🎉 🐷", "Great Job!", "#4CAF50");
+            window.speechSynthesis.cancel();
+            currentIndex++;
+            drawSequence();
+            
+            if(currentIndex >= currentSequence.length) {
+                setTimeout(() => {
+                    updateUIFeedback("🎉 🐷", "You did it!", "#4CAF50");
+                    speak("Great job!");
+                    setTimeout(loadExercise, 1500);
+                }, 500);
             }
         } else {
-            if (playedNote === targetItem) {
-                handleCorrect();
-            } else {
-                handleIncorrectSingle(playedNote, targetItem);
-            }
+            mistakes++;
+            const isHigh = pitches[playedNote].m > pitches[targetNote].m;
+            updateUIFeedback("😢", isHigh ? "Too High!" : "Too Low!", "red");
+            speak(isHigh ? "Too high" : "Too low");
+            showMistakeVisual(playedNote);
         }
     }
 
-    function handleCorrect() {
-        const targetItem = currentSequence[currentIndex];
-        const isChord = Array.isArray(targetItem);
-
-        updateUIFeedback("🎉 🐷", "Great Job!", "#4CAF50");
-        window.speechSynthesis.cancel();
-        
-        if (isChord) {
-            targetItem.forEach(n => playSound(pitches[n].f));
-            speak(getChordName(targetItem));
+    function handleChoiceClick(selectedName, correctName, btn) {
+        if(selectedName === correctName) {
+            btn.classList.add('correct');
+            chordProgress = currentChordTarget.notes; 
+            drawSequence();
+            updateUIFeedback("🎉 🐷", "Great Job!", "#4CAF50");
+            window.speechSynthesis.cancel();
+            speak(correctName);
+            currentChordTarget.notes.forEach(n => playSound(pitches[n].f));
+            
+            setTimeout(loadExercise, 1500);
+        } else {
+            mistakes++;
+            btn.classList.add('wrong');
+            setTimeout(() => btn.classList.remove('wrong'), 800);
+            updateUIFeedback("😢", "Try again!", "red");
+            speak("Try again");
+            if (mistakes >= 3) document.getElementById('help-btn').style.display = 'inline-block';
         }
-        
-        currentIndex++;
-        chordProgress = []; 
-        drawSequence();
-        
-        if(currentIndex >= currentSequence.length) {
-            const delayBeforeEnd = isChord ? 2000 : 500;
-            setTimeout(() => {
-                updateUIFeedback("🎉 🐷", "You did it!", "#4CAF50");
-                speak("Great job!");
-                setTimeout(loadExercise, 1500);
-            }, delayBeforeEnd);
-        }
-    }
-
-    function handleIncorrectSingle(playedNote, targetNote) {
-        mistakes++;
-        const pPlayed = pitches[playedNote];
-        const pTarget = pitches[targetNote];
-        
-        const isHigh = pPlayed.m > pTarget.m;
-        const msg = isHigh ? "Too High!" : "Too Low!";
-        
-        updateUIFeedback("😢", msg, "red");
-        speak(isHigh ? "Too high" : "Too low");
-        
-        showMistakeVisual(playedNote);
-    }
-
-    function handleIncorrectChord(playedNote) {
-        mistakes++;
-        updateUIFeedback("😢", "Try again!", "red");
-        speak("Try again");
-        showMistakeVisual(playedNote);
     }
 
     function showMistakeVisual(playedNote) {
-        if (mistakes >= 3) {
-            document.getElementById('help-btn').style.display = 'inline-block';
-        }
-
+        if (mistakes >= 3) document.getElementById('help-btn').style.display = 'inline-block';
         const feedbackLayer = document.getElementById('feedback-layer');
         feedbackLayer.innerHTML = '';
-        
-        const startX = 80;
-        const spacing = 45;
-        const currentX = startX + (currentIndex * spacing);
-        
-        drawNoteVisual(feedbackLayer, currentX, pitches[playedNote], "red", false);
+        const x = 80 + (currentIndex * 45);
+        drawNoteVisual(feedbackLayer, x, pitches[playedNote], "red", false);
         
         clearTimeout(visualTimeout);
-        visualTimeout = setTimeout(() => {
-            feedbackLayer.innerHTML = '';
-        }, 800);
+        visualTimeout = setTimeout(() => { feedbackLayer.innerHTML = ''; }, 800);
     }
 
     function updateUIFeedback(emoji, text, color) {
         document.getElementById('face-emoji').textContent = emoji;
         const textSpan = document.getElementById('feedback-text');
-        textSpan.textContent = text;
-        textSpan.style.color = color;
+        textSpan.textContent = text; textSpan.style.color = color;
     }
 </script>
 </body>
