@@ -132,7 +132,7 @@
 <div id="feedback-area">
     <span id="face-emoji">🤔</span>
     <span id="feedback-text" style="margin-left: 15px; font-size: 28px;">Let's play!</span>
-    <button id="help-btn" onclick="playTargetSound()">🔊 Hear Note</button>
+    <button id="help-btn" onclick="playHelpSequence()">🔊 Hear Scale</button>
 </div>
 
 <div id="keyboard"></div>
@@ -142,6 +142,7 @@
     let audioCtx;
     let voiceTimeout;
     let visualTimeout;
+    let helpSequenceTimeout; // Added for scale playback sequence control
     
     let currentSequence = [];
     let currentIndex = 0;
@@ -150,7 +151,6 @@
     let lastSequenceData = null; 
     let currentChordTarget = null; 
     
-    // Y-Coordinates accurately track standard staff lines. Enharmonics duplicate frequencies but correct Y-positions.
     const pitches = {
         'E2': { f: 82.41, m: 40, yBass: 140, type: 'white' },
         'F2': { f: 87.31, m: 41, yBass: 130, type: 'white' },
@@ -215,20 +215,19 @@
         'Bb5':{ f: 932.33, m: 82, yTreble: 20, type: 'black', acc: '♭' }
     };
 
-    // The rendered keys ignore enharmonics to avoid drawing duplicate keys
     const keysOrderTreble = ['C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','Bb4','B4','C5','C#5','D5','D#5','E5','F5','F#5','G5','G#5','A5','Bb5'];
     const keysOrderBass = ['E2','F2','F#2','G2','G#2','A2','Bb2','B2','C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','Bb3','B3','C4','C#4'];
 
     const songPools = {
         treble: [
-            ['C4','C4','G4','G4','A4','A4','G4'], // Twinkle (7 notes)
-            ['C4','C4','D4','C4','F4','E4'],      // Happy Birthday (6 notes)
-            ['F4','F4','Bb4','Bb4','A4','A4','G4','F4'], // Bingo (8 notes)
-            ['E4','D4','C4','D4','E4','E4','E4'], // Mary Had A Little Lamb (7 notes)
-            ['C4','C4','C4','D4','E4'], // Row Your Boat (5 notes)
-            ['E4','E4','F4','G4','G4','F4','E4','D4'], // Ode to Joy (8 notes)
-            ['E4','E4','E4','E4','E4','E4'], // Jingle Bells (6 notes)
-            ['G4','G4','G4','D4','E4','E4','D4'] // Old MacDonald (7 notes)
+            ['C4','C4','G4','G4','A4','A4','G4'],
+            ['C4','C4','D4','C4','F4','E4'],     
+            ['F4','F4','Bb4','Bb4','A4','A4','G4','F4'],
+            ['E4','D4','C4','D4','E4','E4','E4'],
+            ['C4','C4','C4','D4','E4'], 
+            ['E4','E4','F4','G4','G4','F4','E4','D4'], 
+            ['E4','E4','E4','E4','E4','E4'], 
+            ['G4','G4','G4','D4','E4','E4','D4'] 
         ],
         bass: [
             ['C3','C3','G3','G3','A3','A3','G3'], 
@@ -242,7 +241,6 @@
         ]
     };
 
-    // 4 common diatonic chords (I, IV, V, vi) per key signature to populate Multiple Choice 
     const chordDict = {
         'C': {
             treble: [ {name:'C Major', notes:['C4','E4','G4']}, {name:'F Major', notes:['F4','A4','C5']}, {name:'G Major', notes:['G4','B4','D5']}, {name:'A minor', notes:['A4','C5','E5']} ],
@@ -304,7 +302,7 @@
         document.getElementById('keyboard').style.display = level === 'chords' ? 'none' : 'flex';
         document.getElementById('multiple-choice').style.display = level === 'chords' ? 'flex' : 'none';
         
-        lastSequenceData = null; // Reset streak memory
+        lastSequenceData = null; 
         loadExercise();
     }
 
@@ -349,14 +347,54 @@
         osc.stop(audioCtx.currentTime + 1);
     }
 
-    function playTargetSound() {
+    function playHelpSequence() {
         const level = document.getElementById('level-select').value;
+        
+        // Preserve chord logic: play the chord directly
         if (level === 'chords' && currentChordTarget) {
             currentChordTarget.notes.forEach(n => playSound(pitches[n].f));
-        } else {
-            if(currentIndex >= currentSequence.length) return;
-            playSound(pitches[currentSequence[currentIndex]].f);
+            return;
+        } 
+        
+        // Scale Sequence Logic for Single Notes / Songs
+        const isTreble = document.getElementById('clef-select').value === 'treble';
+        const keys = isTreble ? keysOrderTreble : keysOrderBass;
+        
+        // Find C4 index. If not found in the current clef array, default to index 0
+        let startIndex = keys.indexOf('C4');
+        if (startIndex === -1) startIndex = 0;
+        
+        const helpSequence = keys.slice(startIndex);
+        const helpLayer = document.getElementById('feedback-layer');
+        
+        const startX = 120; 
+        const targetX = startX + (currentIndex * 45) + 60; // Shifts the temporary note 60px to the right
+        
+        let i = 0;
+        const helpBtn = document.getElementById('help-btn');
+        helpBtn.disabled = true; // Prevent rapid clicking
+
+        clearTimeout(helpSequenceTimeout);
+
+        function playNext() {
+            if (i >= helpSequence.length) {
+                setTimeout(() => { helpLayer.innerHTML = ''; }, 500);
+                helpBtn.disabled = false;
+                return;
+            }
+            
+            const note = helpSequence[i];
+            playSound(pitches[note].f);
+            
+            helpLayer.innerHTML = '';
+            // Draw the temporary note in blue (#2196F3)
+            drawNoteVisual(helpLayer, targetX, pitches[note], "#2196F3", false);
+            
+            i++;
+            helpSequenceTimeout = setTimeout(playNext, 500); // 500ms between each note
         }
+        
+        playNext();
     }
 
     function speak(text) {
@@ -389,6 +427,7 @@
     }
 
     function loadExercise() {
+        clearTimeout(helpSequenceTimeout); // Stops visual playback if exercise resets
         const level = document.getElementById('level-select').value;
         const clef = document.getElementById('clef-select').value;
         const isTreble = clef === 'treble';
@@ -414,6 +453,7 @@
         chordProgress = [];
         currentChordTarget = null;
         document.getElementById('help-btn').style.display = 'none';
+        document.getElementById('help-btn').disabled = false; // Reset button state
 
         let newChoice;
         
@@ -464,7 +504,7 @@
     function drawSequence() {
         const layer = document.getElementById('notes-layer');
         layer.innerHTML = '';
-        const startX = 80;
+        const startX = 120; // Increased spacing base
         const spacing = 45;
 
         currentSequence.forEach((item, index) => {
@@ -531,25 +571,25 @@
     }
 
     function handleKeyPress(playedNote, element) {
+        clearTimeout(helpSequenceTimeout); // Stops visual playback if user inputs
+        document.getElementById('feedback-layer').innerHTML = ''; // Clear visual scale artifacts
+        document.getElementById('help-btn').disabled = false; // Re-enable help button
+        
         const level = document.getElementById('level-select').value;
         
         element.classList.add('active');
         setTimeout(() => element.classList.remove('active'), 200);
         playSound(pitches[playedNote].f);
         
-        // Free Play Logic
         if (level === 'freeplay') {
             const layer = document.getElementById('notes-layer');
             layer.innerHTML = '';
             
-            // Draw the note in the middle of the staff
             drawNoteVisual(layer, 225, pitches[playedNote], "black", false);
             
-            // Show the note name (stripping out the octave number)
             const noteName = playedNote.replace(/[0-9]/g, '');
             updateUIFeedback("🎶", noteName, "#2196F3");
             
-            // Clear the note after 1 second
             clearTimeout(visualTimeout);
             visualTimeout = setTimeout(() => {
                 layer.innerHTML = '';
@@ -609,7 +649,7 @@
         if (mistakes >= 3) document.getElementById('help-btn').style.display = 'inline-block';
         const feedbackLayer = document.getElementById('feedback-layer');
         feedbackLayer.innerHTML = '';
-        const x = 80 + (currentIndex * 45);
+        const x = 120 + (currentIndex * 45); // Aligned spacing
         drawNoteVisual(feedbackLayer, x, pitches[playedNote], "red", false);
         
         clearTimeout(visualTimeout);
