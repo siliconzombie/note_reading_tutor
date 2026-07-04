@@ -152,6 +152,7 @@
     let currentChordTarget = null; 
     
     const pitches = {
+        'D#2':{ f: 77.78, m: 39, yBass: 140, type: 'black', acc: '♯' },
         'E2': { f: 82.41, m: 40, yBass: 140, type: 'white' },
         'F2': { f: 87.31, m: 41, yBass: 130, type: 'white' },
         'F#2':{ f: 92.50, m: 42, yBass: 130, type: 'black', acc: '♯' },
@@ -216,8 +217,8 @@
     };
 
     // Bb5 removed from the end of keysOrderTreble
-    const keysOrderTreble = ['C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','Bb4','B4','C5','C#5','D5','D#5','E5','F5','F#5','G5','G#5','A5'];
-    const keysOrderBass = ['E2','F2','F#2','G2','G#2','A2','Bb2','B2','C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','Bb3','B3','C4','C#4'];
+    const keysOrderTreble = ['C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','Bb4','B4','C5','C#5','D5','D#5','E5','F5','F#5','G5','G#5','A5', 'Bb5'];
+    const keysOrderBass = ['D#2','E2','F2','F#2','G2','G#2','A2','Bb2','B2','C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','Bb3','B3','C4','C#4'];
 
     const songPools = {
         treble: [
